@@ -8,8 +8,8 @@
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <tf/tf.h>
-// #include <ypspur.h>
-//
+#include <ypspur.h>
+
 union IntAndFloat
 {/*{{{*/
 	int ival;

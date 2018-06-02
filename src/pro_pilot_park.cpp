@@ -3,10 +3,10 @@
 ProPilotPark::ProPilotPark ()
 {/*{{{*/
 	ros::NodeHandle nh, private_nh("~");
-	private_nh.param( "spur_vel", spur_vel_, 0.5 );
-	private_nh.param( "spur_angvel", spur_vel_, M_PI * 45.0 / 180.0 );
-	private_nh.param( "spur_accel", spur_vel_, 0.5 );
-	private_nh.param( "spur_angaccel", spur_vel_, M_PI * 180.0 / 180.0 );
+	private_nh.param( "spur_vel", spur_vel_, 0.1 );
+	private_nh.param( "spur_angvel", spur_angvel_, M_PI * 10.0 / 180.0 );
+	private_nh.param( "spur_accel", spur_accel_, 0.5 );
+	private_nh.param( "spur_angaccel", spur_angaccel_, M_PI * 180.0 / 180.0 );
 	private_nh.param( "angle_threshold", angle_threshold_, M_PI * 10.0 / 180.0 );
 	private_nh.param( "dist_threshold", dist_threshold_, 0.05 );
 	private_nh.param( "min_pts_per_line", min_pts_per_line_, 10 );
@@ -29,11 +29,12 @@ ProPilotPark::ProPilotPark ()
 	line_pub_ = nh.advertise<visualization_msgs::Marker>("parkspace_markers_line", 1);
 
 	circle_size_ = garage_length_ * 0.4;
-	// Spur_init();
-	// Spur_set_vel ( spur_vel_ );
-	// Spur_set_angvel ( spur_angvel_ );
-	// Spur_set_accel ( spur_accel_ );
-	// Spur_set_angaccel ( spur_angaccel_ );
+
+	Spur_init();
+	Spur_set_vel ( spur_vel_ );
+	Spur_set_angvel ( spur_angvel_ );
+	Spur_set_accel ( spur_accel_ );
+	Spur_set_angaccel ( spur_angaccel_ );
 }/*}}}*/
 
 void ProPilotPark::scanCallback( const sensor_msgs::LaserScan::ConstPtr& msg )
@@ -59,11 +60,13 @@ void ProPilotPark::spin()
 		// if no scan data, stop
 		if ( ros::Time::now() - last_callback_time_ > ros::Duration( scancallback_patience_ ) ) {
 			ROS_INFO( "em stop" );
+			Spur_stop();
 			ros::Duration( 1.0 ).sleep();
 		}
 
 
 		else if ( scan_recieved_ ) {
+			Spur_free();
 			clustering();
 			detectWalls();
 			detectParkSpace();
@@ -94,7 +97,7 @@ void ProPilotPark::park()
 		return;
 	}
 
-	if ( point_.header.frame_id != scan_.frame_id ) {
+	if ( point_.header.frame_id != scan_.header.frame_id ) {
 		ROS_INFO( "clicked point frame is not valid" );
 		return;
 	}
@@ -141,17 +144,34 @@ void ProPilotPark::doPark( ParkSpace ps )
 	Eigen::Vector2d center1;
 	center1[0] = offset;
 	center1[1] = radius * sign;
+	ROS_INFO( "radius = %f, sign = %d", radius, sign );
 	Eigen::Vector2d center2 = target + radius * e;
 
 	center1[0] -= offset;
 	center2[0] -= offset;
 
-	Eigen::Vector2d diff = center2 - center1;
-	double angle = atan2( diff[1], diff[0] );
+	Eigen::Vector2d diff1 = center2 - center1;
+	double angle1 = atan2( diff1[1] , diff1[0] );
+	ROS_INFO( "ang = %f", angle1 * 180.0 / M_PI );
+	Eigen::Vector2d diff2 = target - center2;
+	double angle2 = atan2( diff2[1] , diff2[0] );
+
+	Spur_set_vel ( spur_vel_ );
+	Spur_set_angvel ( spur_angvel_ );
+	Spur_set_accel ( spur_accel_ );
+	Spur_set_angaccel ( spur_angaccel_ );
+
 
 	Spur_set_pos_GL( 0.0, 0.0, 0.0 );
-	Spur_circle_GL( center1[0], center1[1], - sign * radius * 2.0 );
-	while( ! Spur_over_line_GL( center1[0], center1[1], angle ) ) {
+	Spur_circle_GL( center1[0], center1[1], sign * radius );
+	while( ! Spur_over_line_GL( center1[0], center1[1], angle1 + M_PI / 2.0 ) ) {
+		usleep( 10000 );
+	}
+
+	Spur_set_vel ( -spur_vel_ );
+
+	Spur_circle_GL( center2[0], center2[1], - sign * radius );
+	while( ! Spur_over_line_GL( center2[0], center2[1], - ( angle2 + M_PI / 2.0 ) ) ) {
 		usleep( 10000 );
 	}
 	Spur_stop();
@@ -294,7 +314,8 @@ void ProPilotPark::detectParkCircle()
 	double radius2 = ( - kei1 - sqrt( kei1 * kei1 - kei2 * kei0 ) ) / kei2;
 	double radius = std::max( fabs(radius1), fabs(radius2) );
 	// double l2 = ( - kei1 - sqrt( kei1 * kei1 - kei2 * kei0 ) ) / kei2;
-	ROS_INFO( "radius = %f, %f", radius1, radius2 );
+	// ROS_INFO( "radius = %f, %f", radius1, radius2 );
+	ROS_INFO( "radius : %f", radius );
 	ParkCircle pc;
 	pc.radius = radius;
 	pc.position = target + radius * e;

@@ -28,6 +28,7 @@ add_library(pro_pilot_park
 	src/pro_pilot_park.cpp
 	)
 target_link_libraries(pro_pilot_park
+	ypspur
 	${catkin_LIBRARIES}
 	)
 
@@ -35,5 +36,6 @@ add_executable(pro_pilot_park_node
 	main/pro_pilot_park_node.cpp)
 target_link_libraries(pro_pilot_park_node
 	pro_pilot_park
+	ypspur
 	${catkin_LIBRARIES}
 	)
