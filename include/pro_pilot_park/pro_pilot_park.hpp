@@ -37,8 +37,11 @@ class ProPilotPark
 		int min_pts_per_line_;
 		double control_hz_ = 10.0;
 		double scancallback_patience_ = 0.2;
+		double circle_size_;
 
 		bool scan_recieved_ = false;
+		bool point_recieved_ = false;
+		geometry_msgs::PointStamped point_;
 		sensor_msgs::LaserScan scan_;
 		struct Point {
 			Eigen::Vector2d pos;
@@ -71,7 +74,9 @@ class ProPilotPark
 		std::vector<int> dist_error_index_;
 		std::vector<int> angle_error_index_;
 		ros::Time last_callback_time_;
+		ros::Time point_last_callback_time_;
 		ros::Subscriber scan_sub_;
+		ros::Subscriber point_sub_;
 		ros::Publisher clustered_scan_pub_;
 		ros::Publisher normal_vector_pub_;
 		ros::Publisher dist_error_pc_pub_;
@@ -84,6 +89,9 @@ class ProPilotPark
 		ros::Publisher line_pub_;
 
 		void scanCallback( const sensor_msgs::LaserScan::ConstPtr& msg );
+		void pointCallback( const geometry_msgs::PointStamped& msg );
+		void park();
+		void doPark( ParkSpace ps );
 		void clustering();
 		void detectWalls();
 		void detectParkSpace();

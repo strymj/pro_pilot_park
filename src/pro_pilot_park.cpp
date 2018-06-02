@@ -16,6 +16,7 @@ ProPilotPark::ProPilotPark ()
 	private_nh.param( "garage_angle_tolerance", garage_angle_tolerance_, M_PI * 10.0 / 180.0 );
 
 	scan_sub_ = nh.subscribe( "scan", 1, &ProPilotPark::scanCallback, this );
+	point_sub_ = nh.subscribe( "clicked_point", 1, &ProPilotPark::pointCallback, this );
 	clustered_scan_pub_ = nh.advertise<sensor_msgs::LaserScan> ( "clustered_scan", 1 );
 	normal_vector_pub_ = nh.advertise<geometry_msgs::PoseArray>("normal_vector", 1);
 	dist_error_pc_pub_ = nh.advertise<sensor_msgs::PointCloud2>("dist_error", 1);
@@ -27,6 +28,7 @@ ProPilotPark::ProPilotPark ()
 	path_circle_pub_ = nh.advertise<visualization_msgs::MarkerArray>("parkspace_markers_path", 1);
 	line_pub_ = nh.advertise<visualization_msgs::Marker>("parkspace_markers_line", 1);
 
+	circle_size_ = garage_length_ * 0.4;
 	// Spur_init();
 	// Spur_set_vel ( spur_vel_ );
 	// Spur_set_angvel ( spur_angvel_ );
@@ -39,6 +41,13 @@ void ProPilotPark::scanCallback( const sensor_msgs::LaserScan::ConstPtr& msg )
 	scan_ = *msg;
 	scan_recieved_ = true;
 	last_callback_time_ = ros::Time::now();
+}/*}}}*/
+
+void ProPilotPark::pointCallback( const geometry_msgs::PointStamped& msg )
+{/*{{{*/
+	point_recieved_ = true;
+	point_ = msg;
+	point_last_callback_time_ = ros::Time::now();
 }/*}}}*/
 
 void ProPilotPark::spin()
@@ -55,7 +64,6 @@ void ProPilotPark::spin()
 
 
 		else if ( scan_recieved_ ) {
-			ROS_INFO( "scan recieved" );
 			clustering();
 			detectWalls();
 			detectParkSpace();
@@ -68,12 +76,86 @@ void ProPilotPark::spin()
 			publishParkSpace();
 			publishPathCircle();
 			publishLine();
+			if ( point_recieved_ ) {
+				park();
+			}
 			scan_recieved_ = false;
 		}
 
 		ros::spinOnce();
 		looprate.sleep();
 	}
+}/*}}}*/
+
+void ProPilotPark::park()
+{/*{{{*/
+	if ( ros::Time::now() - point_last_callback_time_ > ros::Duration( 4.0 ) ) {
+		point_recieved_ = false;
+		return;
+	}
+
+	if ( point_.header.frame_id != scan_.frame_id ) {
+		ROS_INFO( "clicked point frame is not valid" );
+		return;
+	}
+
+	Eigen::Vector2d clicked_point;
+	clicked_point[0] = point_.point.x;
+	clicked_point[1] = point_.point.y;
+
+	for ( const auto parkspace : parkspace_list_ ) {
+		double error = ( clicked_point - parkspace.position ).norm();
+		if ( error < circle_size_ / 2.0 ) {
+			doPark( parkspace );
+		}
+	}
+}/*}}}*/
+
+void ProPilotPark::doPark( ParkSpace ps )
+{/*{{{*/
+	Eigen::Vector2d target = ps.position + ps.direction * garage_length_ / 2.0;
+	Eigen::Vector2d e;
+	double offset = -0.15;
+	e[0] =  ps.direction[1];
+	e[1] = -ps.direction[0];
+	int sign = 1;
+	if ( 0.0 < target[1] ) {
+		e *= -1;
+		sign = -1;
+	}
+	ParkSpace sample;
+	sample.position = target;
+	sample.direction = parkspace_list_[0].direction;
+	sample_list_.push_back( sample );
+	sample.direction = e;
+	sample_list_.push_back( sample );
+
+	double kei2 = pow( e[0], 2 ) + pow( e[1] - sign, 2 ) - 4.0;
+	double kei1 = e[0]  * ( target[0] - offset ) + ( e[1] - sign ) * target[1];
+	double kei0 = pow( target[0] - offset, 2 ) + pow( target[1], 2 );
+
+	double radius1 = ( - kei1 + sqrt( kei1 * kei1 - kei2 * kei0 ) ) / kei2;
+	double radius2 = ( - kei1 - sqrt( kei1 * kei1 - kei2 * kei0 ) ) / kei2;
+	double radius = std::max( fabs(radius1), fabs(radius2) );
+
+	Eigen::Vector2d center1;
+	center1[0] = offset;
+	center1[1] = radius * sign;
+	Eigen::Vector2d center2 = target + radius * e;
+
+	center1[0] -= offset;
+	center2[0] -= offset;
+
+	Eigen::Vector2d diff = center2 - center1;
+	double angle = atan2( diff[1], diff[0] );
+
+	Spur_set_pos_GL( 0.0, 0.0, 0.0 );
+	Spur_circle_GL( center1[0], center1[1], - sign * radius * 2.0 );
+	while( ! Spur_over_line_GL( center1[0], center1[1], angle ) ) {
+		usleep( 10000 );
+	}
+	Spur_stop();
+
 }/*}}}*/
 
 void ProPilotPark::clustering()
@@ -520,7 +602,7 @@ void ProPilotPark::publishPSSphere()
 	ps.header = scan_.header;
 	ps.type = visualization_msgs::Marker::LINE_LIST;
 	ps.id = 0;
-	ps.lifetime = 2 * ros::Duration( 1.0/control_hz_ );
+	ps.lifetime = ros::Duration( 2.0 * 1.0/control_hz_ );
 	// ps.action = 3;  // delete
 	// ps_sphere_pub_.publish( ps ); // delete
 
@@ -557,7 +639,7 @@ void ProPilotPark::publishLine()
 	ps.header = scan_.header;
 	ps.type = visualization_msgs::Marker::LINE_LIST;
 	ps.id = 0;
-	ps.lifetime = 2 * ros::Duration( 1.0/control_hz_ );
+	ps.lifetime = ros::Duration( 2.0 * 1.0/control_hz_ );
 	// ps.action = 3;  // delete
 	// ps_sphere_pub_.publish( ps ); // delete
 
@@ -592,11 +674,11 @@ void ProPilotPark::publishPSCircle()
 	ps.header = scan_.header;
 	ps.type = visualization_msgs::Marker::CYLINDER;
 	ps.id = 0;
-	ps.lifetime = 2 * ros::Duration( 1.0/control_hz_ );
+	ps.lifetime = ros::Duration( 2.0 * 1.0/control_hz_ );
 
 	ps.action = visualization_msgs::Marker::ADD;
 
-	ps.scale.x = garage_length_ * 0.4;
+	ps.scale.x = circle_size_;
 	ps.scale.y = ps.scale.x;
 	ps.scale.z = 0.01;
 
@@ -624,7 +706,7 @@ void ProPilotPark::publishPSText()
 	ps.header = scan_.header;
 	ps.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
 	ps.id = 0;
-	ps.lifetime = 2 * ros::Duration( 1.0/control_hz_ );
+	ps.lifetime = ros::Duration( 2.0 * 1.0/control_hz_ );
 
 	ps.action = visualization_msgs::Marker::ADD;
 	ps.text = "P";
@@ -661,7 +743,7 @@ void ProPilotPark::publishPathCircle()
 	ps.header = scan_.header;
 	ps.type = visualization_msgs::Marker::CYLINDER;
 	ps.id = 0;
-	ps.lifetime = 2 * ros::Duration( 1.0/control_hz_ );
+	ps.lifetime = ros::Duration( 2.0 * 1.0/control_hz_ );
 
 	ps.action = visualization_msgs::Marker::ADD;
 
