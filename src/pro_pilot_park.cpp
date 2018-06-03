@@ -12,7 +12,7 @@ ProPilotPark::ProPilotPark ()
 	private_nh.param( "min_pts_per_line", min_pts_per_line_, 10 );
 	private_nh.param( "garage_length", garage_length_, 0.45 );
 	private_nh.param( "garage_length_tolerance", garage_length_tolerance_, 0.3 );
-	private_nh.param( "garage_position_tolerance", garage_position_tolerance_, 0.1 );
+	private_nh.param( "garage_position_tolerance", garage_position_tolerance_, 0.2 );
 	private_nh.param( "garage_angle_tolerance", garage_angle_tolerance_, M_PI * 10.0 / 180.0 );
 
 	scan_sub_ = nh.subscribe( "scan", 1, &ProPilotPark::scanCallback, this );
