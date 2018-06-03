@@ -164,16 +164,26 @@ void ProPilotPark::doPark( ParkSpace ps )
 
 	Spur_set_pos_GL( 0.0, 0.0, 0.0 );
 	Spur_circle_GL( center1[0], center1[1], sign * radius );
-	while( ! Spur_over_line_GL( center1[0], center1[1], angle1 + M_PI / 2.0 ) ) {
+	while( ! Spur_over_line_GL( center1[0], center1[1], angle1 + sign * M_PI / 2.0 ) ) {
 		usleep( 10000 );
 	}
 
 	Spur_set_vel ( -spur_vel_ );
 
 	Spur_circle_GL( center2[0], center2[1], - sign * radius );
-	while( ! Spur_over_line_GL( center2[0], center2[1], - ( angle2 + M_PI / 2.0 ) ) ) {
+	while( ! Spur_over_line_GL( center2[0], center2[1], angle2 + sign * M_PI / 2.0 ) ) {
 		usleep( 10000 );
 	}
+
+	Eigen::Vector2d goal = ps.position;
+	goal[0] -= offset;
+	double angle3 = atan2( ps.direction[1] , ps.direction[0] );
+
+	Spur_line_GL( goal[0], goal[1], angle3 );
+	while( ! Spur_over_line_GL( goal[0], goal[1], angle3 + M_PI ) ) {
+		usleep( 10000 );
+	}
+
 	Spur_stop();
 
 }/*}}}*/
